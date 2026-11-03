@@ -1,0 +1,46 @@
+# Dependencies and build output
+node_modules/
+dist/
+**/dist/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+
+# Secrets. *.env.example stays tracked.
+.env
+.env.*
+!.env.example
+
+# Previous git history. Contains call transcripts and an LLM log.
+.git_bad/
+.git_old/
+
+# Runtime data. `data/` matches a directory of that name anywhere,
+# including server/data/ (session JSON, WAV, autosaves, llm_calls.db).
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.wav
+*.mp3
+*.m4a
+
+# Python
+**/__pycache__/
+**/*.pyc
+.venv/
+server/diarization/.venv/
+
+AGENTS.md
+CLAUDE.md
+.agents/*
+.claude/*
+.agents/*
+.beads/*
+.codex/*
+.dolt*
+
+# Logs
+*.log

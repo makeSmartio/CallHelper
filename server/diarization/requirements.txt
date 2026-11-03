@@ -1,0 +1,32 @@
+# Python deps for the pyannote.audio diarization sidecar.
+#
+# Install:
+#   python3 -m venv server/diarization/.venv
+#   source server/diarization/.venv/bin/activate
+#   pip install -r server/diarization/requirements.txt
+#
+# Notes:
+# - On Apple Silicon, PyTorch will use MPS automatically if available.
+# - Diarization model: pyannote/speaker-diarization-3.1
+#   You MUST accept the model terms on Hugging Face first
+#   (https://hf.co/pyannote/speaker-diarization-3.1) and provide HF_TOKEN.
+# - Local transcription uses Parakeet MLX and requires Apple Silicon.
+
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pyannote.audio==3.3.2
+# pyannote.audio 3.3.2 internally calls hf_hub_download(..., use_auth_token=...).
+# huggingface_hub >=1.0 removed `use_auth_token` entirely, so pin below 1.0.
+huggingface_hub>=0.23,<1.0
+torch==2.8.0
+torchaudio==2.8.0
+numpy>=1.26
+# SciPy 1.15.x (last release for Python 3.10) ships a _spropack wheel that
+# dyld on macOS 26+ rejects. 1.16+ requires Python 3.11+.
+scipy>=1.16
+matplotlib>=3.9
+soundfile>=0.12
+python-multipart>=0.0.9
+mlx>=0.22.1
+parakeet-mlx>=0.5.2
+

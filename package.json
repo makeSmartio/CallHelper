@@ -1,0 +1,16 @@
+{
+  "name": "call-copilot",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "bash start.sh",
+    "dev": "bash start.sh",
+    "install:all": "bash start.sh --install"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
+  }
+}
