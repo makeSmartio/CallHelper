@@ -18,16 +18,20 @@ Node backend  ──WS /stream-transcribe (PCM)► Python (FastAPI + Parakeet ML
 2. Accept the gated-model terms for
    <https://hf.co/pyannote/speaker-diarization-3.1>
    (a single "Agree and access repository" click).
-3. Install Python deps:
+3. Install Python deps with [uv](https://docs.astral.sh/uv/). It reads
+   `.python-version` (3.14), fetches that Python if needed, and installs the
+   exact versions in `uv.lock` into `.venv`:
 
    ```bash
    cd server/diarization
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
+   uv sync --locked
    ```
 
-4. Put the token in `server/.env`:
+   To change dependencies, edit `pyproject.toml` (or use `uv add` /
+   `uv remove`) and commit the updated `uv.lock`. `uv lock --upgrade`
+   moves everything to the newest compatible versions.
+
+4. Put the token in `server/.env` (`./start.sh --install` offers to do this):
 
    ```
    HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
@@ -37,8 +41,7 @@ Node backend  ──WS /stream-transcribe (PCM)► Python (FastAPI + Parakeet ML
 
 ```bash
 cd server/diarization
-source .venv/bin/activate
-HF_TOKEN=$(grep ^HF_TOKEN ../.env | cut -d= -f2) python service.py
+uv run service.py   # loads ../.env (server/.env) via python-dotenv
 ```
 
 `start.sh` at the repo root does this for you when `server/diarization/.venv`

@@ -30,8 +30,9 @@ prompt against the rolling transcript every few seconds.
 
 ## Prerequisites
 
-- Node.js ≥ 18 and npm ≥ 9
-- Python ≥ 3.10 (for diarization or local transcription)
+- Node.js ≥ 22 and npm ≥ 9
+- [uv](https://docs.astral.sh/uv/) (for diarization or local transcription;
+  it installs Python 3.14 for the sidecar if you don’t have it)
 - Apple Silicon (only if you want the local Parakeet MLX transcription
   fallback)
 - Optional API keys:
@@ -52,8 +53,16 @@ transcript just shows "Speaker ?".
 ./start.sh --install
 ```
 
-This installs `server/`, `client/`, and (if Python is available) creates
-`server/diarization/.venv` with `pyannote.audio`.
+This does the following:
+
+1. If `server/.env` doesn’t exist yet, it creates it from
+   `server/.env.example` (mode 600) and asks whether you want to enter API
+   keys. Each key is optional, input is hidden, and Enter skips a key. An
+   existing `server/.env` is never changed. It also copies
+   `client/.env.example` to `client/.env` if that file is missing.
+2. Installs `server/` and `client/` with npm.
+3. Runs `uv sync --locked` in `server/diarization/` to create its `.venv`
+   (Python 3.14, `pyannote.audio`) from `uv.lock`.
 
 ### Hugging Face setup (one-time, for diarization)
 
@@ -66,14 +75,20 @@ This installs `server/`, `client/`, and (if Python is available) creates
 
 ## Configure
 
+`./start.sh --install` creates `server/.env` and `client/.env` for you. To
+create them by hand instead:
+
 ```bash
 cp server/.env.example server/.env
 cp client/.env.example client/.env
 ```
 
-Those copies are gitignored. The committed examples use empty keys. The
-committed examples use empty keys. Do not commit `.git_bad/`, session
-files, or audio under `server/data/`.
+Those copies are gitignored. The committed examples use empty keys. Do not
+commit `.git_bad/`, session files, or audio under `server/data/`.
+
+`server/.env` is loaded by the Node server (dotenv), by the Python sidecar
+(python-dotenv, so `uv run service.py` works on its own), and by `start.sh`.
+Variables already set in the environment win over `.env`.
 
 `server/.env`:
 
@@ -180,7 +195,7 @@ Browser (React + Vite)            Node backend (Express + ws)            Python 
 | --- | --- | --- |
 | Frontend | 5173 | React + Vite + Tailwind |
 | Backend  | 3001 | Node 18+, Express, `ws`, OpenAI SDK, Deepgram SDK |
-| Diarization | 8765 | Python 3.10+, FastAPI, `pyannote.audio`, PyTorch |
+| Diarization | 8765 | Python 3.14 (uv), FastAPI, `pyannote.audio`, PyTorch |
 
 Periodic diarization covers the last `DIARIZATION_WINDOW_SECONDS` of audio
 (default 120 s) every `DIARIZATION_INTERVAL_MS` (default 10 s). Speaker
@@ -228,7 +243,7 @@ CallHelper/
     │
     ├── diarization/            # Python pyannote sidecar (FastAPI)
     │   ├── service.py
-    │   ├── requirements.txt
+    │   ├── pyproject.toml      # deps; uv.lock pins them, .python-version = 3.14
     │   └── README.md
     │
     └── data/                   # gitignored — sessions + LLM call log

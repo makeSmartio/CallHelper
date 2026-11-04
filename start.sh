@@ -8,35 +8,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 cd "$ROOT"
 
-DIAR_VENV="$ROOT/server/diarization/.venv"
-DIAR_PYTHON="$DIAR_VENV/bin/python"
+DIAR_DIR="$ROOT/server/diarization"
+DIAR_PYTHON="$DIAR_DIR/.venv/bin/python"
 DIAR_IMPORT_ERROR=""
 
-# Prefer 3.12/3.11 over a pyenv `python3` that is 3.10. SciPy 1.15.x (the
-# last release that supports 3.10) ships a _spropack wheel that dyld on
-# macOS 26+ rejects (__DATA/__thread_bss offset). SciPy 1.16+ needs 3.11+.
-resolve_diar_python() {
-  local cand
-  for cand in python3.12 python3.11 python3; do
-    if command -v "$cand" >/dev/null 2>&1; then
-      printf '%s\n' "$cand"
-      return 0
-    fi
-  done
-  return 1
-}
+# uv owns the sidecar's Python (3.14, from server/diarization/.python-version)
+# and its venv. An unrelated activated venv would make uv warn and is never
+# what we want here.
+unset VIRTUAL_ENV
 
-diar_python_minor() {
-  local bin="$1"
-  "$bin" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo 0
-}
-
-# A venv is not relocatable: its activate script and shebangs hardcode the
-# absolute path it was created at. If this repo was ever moved/renamed, a
-# pre-existing .venv here will silently point at a path that no longer
-# exists. Detect that by invoking the venv's python binary directly (not
-# via `source activate`, which can mask the failure behind a pyenv shim).
-# Also fail if pyannote.audio cannot import (e.g. SciPy wheel vs OS).
+# Fail if the venv's python is missing or cannot import the sidecar's deps.
+# Invoke it directly rather than through `source activate`, which can hide a
+# broken venv behind a pyenv shim.
 diar_venv_is_healthy() {
   DIAR_IMPORT_ERROR=""
   if [[ ! -x "$DIAR_PYTHON" ]]; then
@@ -52,6 +35,73 @@ diar_venv_is_healthy() {
     return 1
   fi
   return 0
+}
+
+ENV_FILE="$ROOT/server/.env"
+ENV_TEMPLATE="$ROOT/server/.env.example"
+
+# Replace the `NAME=` line in a dotenv file. Values are validated by the
+# caller, so they need no quoting for either dotenv or `.` (bash source).
+set_env_value() {
+  local file="$1" name="$2" value="$3" tmp
+  tmp="$(mktemp "$file.XXXXXX")"
+  awk -v name="$name" -v value="$value" '
+    index($0, name "=") == 1 { print name "=" value; next }
+    { print }
+  ' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+# Create server/.env from the template on first install and, if a terminal
+# is attached, offer to fill in API keys. Never touches an existing .env.
+setup_server_env() {
+  if [[ -f "$ENV_FILE" ]]; then
+    echo "server/.env already exists; leaving it unchanged."
+    return 0
+  fi
+  local tmp
+  tmp="$(umask 077 && mktemp "$ENV_FILE.XXXXXX")"
+  cp "$ENV_TEMPLATE" "$tmp"
+  chmod 600 "$tmp"
+
+  if [[ -t 0 ]]; then
+    echo ""
+    echo "Creating server/.env. Every key is optional: without keys the app"
+    echo "uses mock analysis and local transcription, and diarization stays off."
+    echo "You can also enter keys later in the app's Keys dialog."
+    local answer
+    read -r -p "Add API keys to server/.env now? [y/N] " answer
+    if [[ "$answer" =~ ^[Yy] ]]; then
+      echo "Press Enter to skip a key. Input is hidden."
+      local entry name label value
+      for entry in \
+        "HF_TOKEN|Hugging Face token (diarization; accept https://hf.co/pyannote/speaker-diarization-3.1 first)" \
+        "DEEPGRAM_API_KEY|Deepgram API key (live transcription)" \
+        "OPENAI_API_KEY|OpenAI API key (analysis)" \
+        "ANTHROPIC_API_KEY|Anthropic API key (Claude models)" \
+        "XAI_API_KEY|xAI API key (Grok)"; do
+        name="${entry%%|*}"
+        label="${entry#*|}"
+        read -r -s -p "  $label: " value
+        echo ""
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+        if [[ -z "$value" ]]; then
+          continue
+        fi
+        if [[ ! "$value" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+          echo "    Skipped $name: unexpected characters. Edit server/.env by hand to set it." >&2
+          continue
+        fi
+        set_env_value "$tmp" "$name" "$value"
+        echo "    Saved $name."
+      done
+    fi
+  else
+    echo "No terminal attached; created server/.env from the template without keys."
+  fi
+  mv "$tmp" "$ENV_FILE"
+  echo "Wrote server/.env (readable only by you; gitignored)."
 }
 
 # Prints the offending process (if any) and the commands to inspect/kill it.
@@ -76,44 +126,27 @@ require_port_free() {
 }
 
 if [[ "${1:-}" == "--install" || "${1:-}" == "-i" ]]; then
+  setup_server_env
+  if [[ ! -f client/.env ]]; then
+    cp client/.env.example client/.env
+  fi
   (cd server && npm install)
   (cd client && npm install)
-  DIAR_PY="$(resolve_diar_python || true)"
-  if [[ -z "$DIAR_PY" ]]; then
-    echo "python3 not found on PATH. Install Python 3.11+ to enable the diarization sidecar." >&2
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "uv is required for the pyannote sidecar. Install it with 'brew install uv'" >&2
+    echo "(or see https://docs.astral.sh/uv/), then re-run $0 --install." >&2
     exit 1
   fi
-  if [[ "$(diar_python_minor "$DIAR_PY")" -lt 11 ]]; then
-    echo "Python 3.11+ is required for the pyannote sidecar on current macOS (found $($DIAR_PY --version 2>&1))." >&2
-    echo "Install python3.12 (Homebrew) so SciPy 1.16+ can load, then re-run $0 --install." >&2
+  echo ""
+  echo "Syncing the pyannote sidecar's Python environment with uv..."
+  # --locked: install exactly what uv.lock pins, and fail if pyproject.toml
+  # changed without re-running `uv lock`. uv fetches Python 3.14 if needed and
+  # rebuilds .venv if it was made with another interpreter.
+  uv sync --locked --project "$DIAR_DIR"
+  if ! diar_venv_is_healthy; then
+    echo "Diarization venv installed but import still fails:" >&2
+    echo "  ${DIAR_IMPORT_ERROR:-unknown import error}" >&2
     exit 1
-  fi
-  recreate=0
-  if [[ -d "$DIAR_VENV" ]] && ! diar_venv_is_healthy; then
-    echo ""
-    echo "Existing Python venv at server/diarization/.venv cannot import pyannote:"
-    echo "  ${DIAR_IMPORT_ERROR:-unknown import error}"
-    echo "Recreating with $DIAR_PY..."
-    recreate=1
-  elif [[ -x "$DIAR_PYTHON" ]] && [[ "$(diar_python_minor "$DIAR_PYTHON")" -lt 11 ]]; then
-    echo ""
-    echo "Existing Python venv is 3.10 (SciPy 1.15.x). Recreating with $DIAR_PY..."
-    recreate=1
-  fi
-  if [[ "$recreate" -eq 1 ]]; then
-    rm -rf "$DIAR_VENV"
-  fi
-  if [[ ! -d "$DIAR_VENV" ]]; then
-    echo ""
-    echo "Setting up Python venv for the pyannote sidecar with $DIAR_PY..."
-    "$DIAR_PY" -m venv "$DIAR_VENV"
-    "$DIAR_PYTHON" -m pip install --upgrade pip
-    "$DIAR_PYTHON" -m pip install -r server/diarization/requirements.txt
-    if ! diar_venv_is_healthy; then
-      echo "Diarization venv installed but import still fails:" >&2
-      echo "  ${DIAR_IMPORT_ERROR:-unknown import error}" >&2
-      exit 1
-    fi
   fi
 fi
 
@@ -135,7 +168,7 @@ if [[ -f server/.env ]]; then
 fi
 
 DIAR_SHOULD_START=0
-if [[ -d "$DIAR_VENV" ]] && diar_venv_is_healthy; then
+if [[ -d "$DIAR_DIR/.venv" ]] && diar_venv_is_healthy; then
   DIAR_SHOULD_START=1
 fi
 
@@ -175,14 +208,13 @@ if [[ "$DIAR_SHOULD_START" -eq 1 ]]; then
   ) &
   DIAR_PID=$!
   echo "Pyannote diarization sidecar starting (PID $DIAR_PID, http://0.0.0.0:${DIARIZATION_PORT:-8765})"
-elif [[ ! -d "$DIAR_VENV" ]]; then
+elif [[ ! -d "$DIAR_DIR/.venv" ]]; then
   echo "Pyannote sidecar venv not found at server/diarization/.venv"
   echo "  Diarization will be disabled. Run: $0 --install  to set it up."
 else
   echo "Pyannote sidecar venv at server/diarization/.venv failed to import:"
   echo "  ${DIAR_IMPORT_ERROR:-unknown import error}"
-  echo "  Diarization will be disabled. If this is a SciPy/macOS wheel issue, use Python 3.12:"
-  echo "  rm -rf server/diarization/.venv && $0 --install"
+  echo "  Diarization will be disabled. Run: $0 --install  to resync it with uv."
 fi
 
 # 2. Node backend

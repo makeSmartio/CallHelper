@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import WebSocket from 'ws';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import OpenAI from 'openai';
@@ -108,7 +108,7 @@ export class ClientSocketHandler {
   private userNotes = '';
 
   constructor(ws: WebSocket) {
-    this.sessionId = uuidv4();
+    this.sessionId = randomUUID();
     this.ws = ws;
     this.transcription = config.useLocalWhisper
       ? new WhisperLocalService()

@@ -1,0 +1,25 @@
+[project]
+name = "call-copilot-diarization"
+version = "1.0.0"
+description = "Call Copilot sidecar: pyannote diarization and Parakeet MLX transcription"
+license = "MIT"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    # 4.x is the first pyannote.audio that installs on Python 3.14 (3.3.x
+    # pulls in speechbrain/sentencepiece, which has no 3.14 build).
+    "pyannote.audio>=4.0.7,<5",
+    "torch>=2.9",
+    "numpy>=2",
+    "soundfile>=0.12",
+    "python-multipart>=0.0.9",
+    # Local transcription; Apple Silicon only.
+    "mlx>=0.22.1",
+    "parakeet-mlx>=0.5.2",
+    "python-dotenv>=1",
+]
+
+[tool.uv]
+# An application run with `uv run`, not a distributable package.
+package = false
