@@ -29,7 +29,7 @@ export const config = {
     return process.env.TRANSCRIPTION_SERVICE === 'whisper-local' || (!getKey('deepgram') && process.env.TRANSCRIPTION_SERVICE !== 'mock');
   },
   get useMockOpenAI(): boolean {
-    return !getKey('openai');
+    return !getKey('openai') && !getKey('anthropic') && !getKey('xai');
   },
 
   // Pyannote sidecar

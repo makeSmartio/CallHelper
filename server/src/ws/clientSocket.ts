@@ -94,6 +94,7 @@ export class ClientSocketHandler {
   // for one provider does not block the others.
   private llmClients: { openai: OpenAI | null; anthropic: OpenAI | null; xai: OpenAI | null } | null =
     null;
+  private llmKeySignature = '';
   private openaiInFlight = false;
   private summaryInFlight = false;
   private analysisModel = config.openAiModel;
@@ -592,7 +593,9 @@ export class ClientSocketHandler {
   }
 
   private getLlmClients(): { openai: OpenAI | null; anthropic: OpenAI | null; xai: OpenAI | null } {
-    if (!this.llmClients) {
+    const signature = [config.openAiApiKey, config.anthropicApiKey, config.xaiApiKey].join('|');
+    if (!this.llmClients || signature !== this.llmKeySignature) {
+      this.llmKeySignature = signature;
       this.llmClients = {
         openai: config.openAiApiKey ? new OpenAI({ apiKey: config.openAiApiKey }) : null,
         anthropic: config.anthropicApiKey
@@ -609,6 +612,15 @@ export class ClientSocketHandler {
     return this.llmClients;
   }
 
+  private effectiveModel(): string {
+    const clients = this.getLlmClients();
+    if (clients[this.providerForModel(this.analysisModel)]) return this.analysisModel;
+    if (clients.openai) return config.openAiModel;
+    if (clients.anthropic) return 'claude-sonnet-5-5';
+    if (clients.xai) return 'grok-4.7';
+    return this.analysisModel;
+  }
+
   private async completeAnalysis(
     systemPrompt: string,
     userContent: string,
@@ -622,16 +634,17 @@ export class ClientSocketHandler {
       }
     | 'mock'
   > {
-    const provider = this.providerForModel(this.analysisModel);
+    const model = this.effectiveModel();
+    const provider = this.providerForModel(model);
     const client = this.getLlmClients()[provider];
     if (!client) {
       if (provider === 'openai') return 'mock';
       const keyLabel = provider === 'anthropic' ? 'Anthropic' : 'xAI';
-      throw new Error(`Add a ${keyLabel} API key with the Keys button to use ${this.analysisModel}.`);
+      throw new Error(`Add a ${keyLabel} API key with the Keys button to use ${model}.`);
     }
 
     const response = await client.chat.completions.create({
-      model: this.analysisModel,
+      model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
@@ -713,7 +726,7 @@ export class ClientSocketHandler {
         sessionId: this.sessionId,
         mode: 'copilot',
         timestamp,
-        model: this.analysisModel,
+        model: this.effectiveModel(),
         systemPrompt,
         userPrompt: userContent,
         response: result,
@@ -795,7 +808,7 @@ export class ClientSocketHandler {
     try {
       let result: string;
       let loggedInput: string;
-      const provider = this.providerForModel(this.analysisModel);
+      const provider = this.providerForModel(this.effectiveModel());
       const hasClient = Boolean(this.getLlmClients()[provider]);
 
       if (!hasClient && provider === 'openai') {
@@ -871,7 +884,7 @@ export class ClientSocketHandler {
         sessionId: this.sessionId,
         mode: 'whole-call-summary',
         timestamp,
-        model: this.analysisModel,
+        model: this.effectiveModel(),
         systemPrompt,
         userPrompt: loggedInput,
         response: result,
