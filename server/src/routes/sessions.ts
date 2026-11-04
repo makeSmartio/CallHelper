@@ -6,7 +6,7 @@
 import express, { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { config } from '../config';
 
 const router = Router();
@@ -128,7 +128,7 @@ router.post('/upload', express.raw({ type: '*/*', limit: '50mb' }), async (req: 
 
     const transcriptChunks = normalizeSpeakerLabels(json.transcriptChunks);
 
-    const sessionId = uuidv4();
+    const sessionId = randomUUID();
     const startedAt = Date.now() - Math.round(json.duration * 1000);
     const endedAt = Date.now();
 

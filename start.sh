@@ -12,15 +12,24 @@ DIAR_VENV="$ROOT/server/diarization/.venv"
 DIAR_PYTHON="$DIAR_VENV/bin/python"
 DIAR_IMPORT_ERROR=""
 
-# Prefer 3.12/3.11 over a pyenv `python3` that is 3.10. SciPy 1.15.x (the
-# last release that supports 3.10) ships a _spropack wheel that dyld on
-# macOS 26+ rejects (__DATA/__thread_bss offset). SciPy 1.16+ needs 3.11+.
+# Supported range for the sidecar: Python 3.11 through 3.13.
+# - Below 3.11: SciPy 1.15.x (the last release that supports 3.10) ships a
+#   _spropack wheel that dyld on macOS 26+ rejects. SciPy 1.16+ needs 3.11+.
+# - 3.14+: torch==2.8.0 (pinned for pyannote.audio 3.3.2) has no 3.14 wheels.
+DIAR_PY_MIN_MINOR=11
+DIAR_PY_MAX_MINOR=13
+
+# Prefer an explicitly versioned interpreter over `python3`, which may be a
+# pyenv 3.10 or a Homebrew 3.14.
 resolve_diar_python() {
-  local cand
-  for cand in python3.12 python3.11 python3; do
+  local cand minor
+  for cand in python3.12 python3.13 python3.11 python3; do
     if command -v "$cand" >/dev/null 2>&1; then
-      printf '%s\n' "$cand"
-      return 0
+      minor="$(diar_python_minor "$cand")"
+      if [[ "$minor" -ge "$DIAR_PY_MIN_MINOR" && "$minor" -le "$DIAR_PY_MAX_MINOR" ]]; then
+        printf '%s\n' "$cand"
+        return 0
+      fi
     fi
   done
   return 1
@@ -80,12 +89,9 @@ if [[ "${1:-}" == "--install" || "${1:-}" == "-i" ]]; then
   (cd client && npm install)
   DIAR_PY="$(resolve_diar_python || true)"
   if [[ -z "$DIAR_PY" ]]; then
-    echo "python3 not found on PATH. Install Python 3.11+ to enable the diarization sidecar." >&2
-    exit 1
-  fi
-  if [[ "$(diar_python_minor "$DIAR_PY")" -lt 11 ]]; then
-    echo "Python 3.11+ is required for the pyannote sidecar on current macOS (found $($DIAR_PY --version 2>&1))." >&2
-    echo "Install python3.12 (Homebrew) so SciPy 1.16+ can load, then re-run $0 --install." >&2
+    found="$(python3 --version 2>&1 || echo 'no python3 on PATH')"
+    echo "The pyannote sidecar needs Python 3.$DIAR_PY_MIN_MINOR-3.$DIAR_PY_MAX_MINOR (found: $found)." >&2
+    echo "Install one, e.g. 'brew install python@3.12', then re-run $0 --install." >&2
     exit 1
   fi
   recreate=0
@@ -95,10 +101,13 @@ if [[ "${1:-}" == "--install" || "${1:-}" == "-i" ]]; then
     echo "  ${DIAR_IMPORT_ERROR:-unknown import error}"
     echo "Recreating with $DIAR_PY..."
     recreate=1
-  elif [[ -x "$DIAR_PYTHON" ]] && [[ "$(diar_python_minor "$DIAR_PYTHON")" -lt 11 ]]; then
-    echo ""
-    echo "Existing Python venv is 3.10 (SciPy 1.15.x). Recreating with $DIAR_PY..."
-    recreate=1
+  elif [[ -x "$DIAR_PYTHON" ]]; then
+    venv_minor="$(diar_python_minor "$DIAR_PYTHON")"
+    if [[ "$venv_minor" -lt "$DIAR_PY_MIN_MINOR" || "$venv_minor" -gt "$DIAR_PY_MAX_MINOR" ]]; then
+      echo ""
+      echo "Existing Python venv is 3.$venv_minor (supported: 3.$DIAR_PY_MIN_MINOR-3.$DIAR_PY_MAX_MINOR). Recreating with $DIAR_PY..."
+      recreate=1
+    fi
   fi
   if [[ "$recreate" -eq 1 ]]; then
     rm -rf "$DIAR_VENV"

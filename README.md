@@ -180,7 +180,7 @@ Browser (React + Vite)            Node backend (Express + ws)            Python 
 | --- | --- | --- |
 | Frontend | 5173 | React + Vite + Tailwind |
 | Backend  | 3001 | Node 18+, Express, `ws`, OpenAI SDK, Deepgram SDK |
-| Diarization | 8765 | Python 3.10+, FastAPI, `pyannote.audio`, PyTorch |
+| Diarization | 8765 | Python 3.11–3.13, FastAPI, `pyannote.audio`, PyTorch |
 
 Periodic diarization covers the last `DIARIZATION_WINDOW_SECONDS` of audio
 (default 120 s) every `DIARIZATION_INTERVAL_MS` (default 10 s). Speaker
