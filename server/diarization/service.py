@@ -56,7 +56,7 @@ def _torch_load_compat(*args, **kwargs):
 
 torch.load = _torch_load_compat
 
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, File, Form, UploadFile, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pyannote.audio import Pipeline, Model, Inference
 from pyannote.audio.pipelines.utils.hook import ProgressHook
@@ -418,6 +418,23 @@ def health() -> dict:
         "embedding_loaded": service._pipeline is not None,
         "has_token": bool(HF_TOKEN),
     }
+
+
+@app.post("/token")
+def set_token_endpoint(payload: dict = Body(...)) -> JSONResponse:
+    global HF_TOKEN
+    token = str(payload.get("token", "")).strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+    if token == HF_TOKEN:
+        return JSONResponse({"status": "unchanged"})
+    HF_TOKEN = token
+    # Drop the loaded pipeline so the next /diarize loads it with the new token.
+    # The model is not loaded here.
+    service._pipeline = None
+    service._release_gpu_cache()
+    log.info("Hugging Face token updated; pyannote reloads on next diarization")
+    return JSONResponse({"status": "ok"})
 
 
 @app.post("/diarize")

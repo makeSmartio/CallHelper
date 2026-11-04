@@ -5,6 +5,18 @@ import { NotesPanel } from '../components/NotesPanel';
 import { SpeakersPanel } from '../components/SpeakersPanel';
 import { MicStatusBadge } from '../components/MicStatusBadge';
 import { StatusBadge } from '../components/StatusBadge';
+import { KeysDialog } from '../components/KeysDialog';
+import {
+  getKeyStatus,
+  hasMissingKeys,
+  isKeysDismissed,
+  KeyStatusMap,
+  loadSavedKeys,
+  postKeys,
+  SavedKeys,
+  setKeysDismissed,
+  storeKeys,
+} from '../lib/apiKeys';
 import { startAudioCapture, AudioCapture, wsClient } from '../lib/ws';
 import {
   listAudioInputDevices,
@@ -133,6 +145,10 @@ export default function CopilotPage() {
     diarization: 'unknown',
   });
   const [restoreOffer, setRestoreOffer] = useState<LocalSessionSnapshot | null>(null);
+  const [keysStatus, setKeysStatus] = useState<KeyStatusMap | null>(null);
+  const [keysOpen, setKeysOpen] = useState(false);
+  const [keysSaving, setKeysSaving] = useState(false);
+  const [keysError, setKeysError] = useState<string | null>(null);
   const [deepgramStatus, setDeepgramStatus] = useState('disconnected');
   const [diarStatus, setDiarStatus] = useState<'disconnected' | 'idle' | 'running' | 'connected' | 'error'>('disconnected');
   const [diarizationEnabled, setDiarizationEnabled] = useState(() => {
@@ -319,6 +335,58 @@ export default function CopilotPage() {
     }, 10000);
     return () => window.clearInterval(interval);
   }, [refreshServiceHealth]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const initKeys = async () => {
+      const saved = loadSavedKeys();
+      const posted = Object.keys(saved).length > 0 ? await postKeys(saved) : null;
+      const status = posted?.keys ?? (await getKeyStatus());
+      if (cancelled) return;
+      if (posted) void refreshServiceHealth();
+      if (status) {
+        setKeysStatus(status);
+        if (hasMissingKeys(status) && !isKeysDismissed()) setKeysOpen(true);
+      }
+    };
+    void initKeys();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshServiceHealth]);
+
+  const handleSaveKeys = useCallback(
+    async (values: SavedKeys) => {
+      if (Object.keys(values).length === 0) {
+        setKeysDismissed(true);
+        setKeysOpen(false);
+        return;
+      }
+      setKeysSaving(true);
+      setKeysError(null);
+      storeKeys(values);
+      const result = await postKeys(values);
+      setKeysSaving(false);
+      if (!result) {
+        setKeysError('Could not reach the server. The keys are saved in this browser and will be sent on the next page load.');
+        return;
+      }
+      setKeysStatus(result.keys);
+      if (result.sidecarError) {
+        setKeysError(`Saved, but the speaker sidecar did not accept the Hugging Face token: ${result.sidecarError}`);
+        return;
+      }
+      setKeysDismissed(true);
+      setKeysOpen(false);
+      void refreshServiceHealth();
+    },
+    [refreshServiceHealth]
+  );
+
+  const handleContinueWithoutKeys = useCallback(() => {
+    setKeysDismissed(true);
+    setKeysOpen(false);
+  }, []);
 
   const sendAudioChunk = useCallback((buffer: ArrayBuffer) => {
     audioChunksRef.current.push(buffer.slice(0));
@@ -1460,7 +1528,7 @@ export default function CopilotPage() {
               title={
                 !diarServerAvailable
                   ? diarizationEnabled
-                    ? 'Diarization unavailable — configure DIARIZATION_URL in server/.env'
+                    ? 'Diarization unavailable — add a Hugging Face key with Keys and set DIARIZATION_URL in server/.env'
                     : 'Click to prefer diarization on (sidecar still needs DIARIZATION_URL)'
                   : diarizationEnabled
                   ? 'Click to turn off speaker diarization'
@@ -1469,6 +1537,27 @@ export default function CopilotPage() {
             />
             <StatusBadge label="AI" status={aiBadgeStatus} />
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setKeysError(null);
+              setKeysOpen(true);
+            }}
+            className="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
+            title="Enter or update API keys"
+          >
+            Keys
+          </button>
+          {keysOpen && (
+            <KeysDialog
+              status={keysStatus}
+              saving={keysSaving}
+              error={keysError}
+              onSave={(values) => void handleSaveKeys(values)}
+              onContinueWithout={handleContinueWithoutKeys}
+            />
+          )}
 
           {numSpeakers > 0 && (
             <span className="text-xs text-gray-400 bg-gray-800 px-2 py-0.5 rounded">
@@ -1632,7 +1721,7 @@ export default function CopilotPage() {
             ]
               .filter(Boolean)
               .join(' · ')}{' '}
-            (configure server/.env to enable real services)
+            (use Keys to enable real services)
           </div>
         )}
       </header>

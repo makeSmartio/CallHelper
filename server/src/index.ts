@@ -11,6 +11,8 @@ import cors from 'cors';
 import http from 'http';
 import { WebSocketServer } from 'ws';
 import { config } from './config';
+import { isKeyName, keyStatus, setKey } from './lib/runtimeKeys';
+import { syncHuggingFaceToken } from './services/diarization';
 import { ClientSocketHandler } from './ws/clientSocket';
 import sessionsRouter from './routes/sessions';
 import llmLogsRouter from './routes/llmLogs';
@@ -25,7 +27,7 @@ app.get('/health', async (_req, res) => {
   let sidecarOk = false;
   let sidecarDetail: string | null = null;
 
-  if (config.useDiarization) {
+  if (config.sidecarConfigured) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2000);
     try {
@@ -91,6 +93,23 @@ app.get('/health', async (_req, res) => {
   });
 });
 
+// Browser-entered API keys. Responses carry presence and source only; values
+// are never returned or logged.
+app.get('/keys', (_req, res) => {
+  res.json({ keys: keyStatus() });
+});
+
+app.post('/keys', async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  let huggingFaceChanged = false;
+  for (const [name, value] of Object.entries(body)) {
+    if (!isKeyName(name) || typeof value !== 'string') continue;
+    if (setKey(name, value) && name === 'huggingface') huggingFaceChanged = true;
+  }
+  const sidecarError = huggingFaceChanged ? await syncHuggingFaceToken() : null;
+  res.json({ keys: keyStatus(), sidecarError });
+});
+
 app.use('/sessions', sessionsRouter);
 app.use('/llm-logs', llmLogsRouter);
 
@@ -147,7 +166,7 @@ server.listen(config.port, () => {
     if (config.useMockDeepgram) console.log('   • Transcription -> Mock Generator');
     if (config.useLocalWhisper)  console.log('   • Transcription -> Local Whisper Sidecar');
     if (config.useMockOpenAI)   console.log('   • OpenAI        -> Mock Analysis Responses');
-    if (!config.useDiarization) console.log('   • Diarization   -> disabled (no DIARIZATION_URL)');
+    if (!config.useDiarization) console.log('   • Diarization   -> disabled (needs DIARIZATION_URL and a Hugging Face key)');
   }
   if (config.useDiarization) {
     console.log(`   Pyannote:  ${config.diarizationUrl}`);

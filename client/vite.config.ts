@@ -31,6 +31,7 @@ export default defineConfig(({ mode }) => {
         '/sessions': { target: backendTarget, changeOrigin: true },
         '/llm-logs': { target: backendTarget, changeOrigin: true },
         '/enroll': { target: backendTarget, changeOrigin: true },
+        '/keys': { target: backendTarget, changeOrigin: true },
         '/copilot-ws': { target: backendTarget, ws: true, changeOrigin: true },
       },
     },

@@ -17,7 +17,7 @@ import { config } from '../config';
 import { logLlmCall, LlmLogEntry } from '../lib/llmLog';
 import { DeepgramService } from '../services/deepgram';
 import { WhisperLocalService } from '../services/whisperLocal';
-import { DiarizationClient, pickSpeakerForRange } from '../services/diarization';
+import { DiarizationClient, pickSpeakerForRange, syncHuggingFaceToken } from '../services/diarization';
 import { TranscriptBuffer, TranscriptChunk } from '../lib/transcriptBuffer';
 import { SessionAudioBuffer } from '../lib/audioBuffer';
 
@@ -289,6 +289,14 @@ export class ClientSocketHandler {
     this.audioBuffer.clear();
     this.diarizer.reset();
     this.analysisResults = [];
+
+    // Keys can change between sessions, so pick services and LLM clients now.
+    this.llmClients = null;
+    this.transcription = config.useLocalWhisper ? new WhisperLocalService() : new DeepgramService();
+    const tokenError = await syncHuggingFaceToken();
+    if (tokenError) {
+      console.warn(`[WS] ${this.sessionId} — Hugging Face token not sent to sidecar: ${tokenError}`);
+    }
 
     try {
       const serviceName = config.useLocalWhisper ? 'WhisperLocal' : 'Deepgram';
@@ -618,8 +626,8 @@ export class ClientSocketHandler {
     const client = this.getLlmClients()[provider];
     if (!client) {
       if (provider === 'openai') return 'mock';
-      const envName = provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'XAI_API_KEY';
-      throw new Error(`Set ${envName} in server/.env to use ${this.analysisModel}.`);
+      const keyLabel = provider === 'anthropic' ? 'Anthropic' : 'xAI';
+      throw new Error(`Add a ${keyLabel} API key with the Keys button to use ${this.analysisModel}.`);
     }
 
     const response = await client.chat.completions.create({

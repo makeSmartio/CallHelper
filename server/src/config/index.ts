@@ -1,24 +1,41 @@
 import dotenv from 'dotenv';
 import path from 'path';
+import { getKey } from '../lib/runtimeKeys';
 
 dotenv.config({ path: path.resolve(__dirname, '../../server/.env') });
 
+// Keys and key-derived flags are getters so browser-entered keys (see
+// lib/runtimeKeys.ts) are read at the moment they are used.
 export const config = {
   host: process.env.HOST ?? '0.0.0.0',
   port: parseInt(process.env.PORT ?? '3001', 10),
-  deepgramApiKey: process.env.DEEPGRAM_API_KEY ?? '',
-  openAiApiKey: process.env.OPENAI_API_KEY ?? '',
+  get deepgramApiKey(): string {
+    return getKey('deepgram');
+  },
+  get openAiApiKey(): string {
+    return getKey('openai');
+  },
   openAiModel: process.env.OPENAI_MODEL ?? 'gpt-5.6-terra',
-  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
-  xaiApiKey: process.env.XAI_API_KEY ?? '',
+  get anthropicApiKey(): string {
+    return getKey('anthropic');
+  },
+  get xaiApiKey(): string {
+    return getKey('xai');
+  },
 
   // Derived: use mock/local services when keys are absent
   useMockDeepgram: process.env.TRANSCRIPTION_SERVICE === 'mock',
-  useLocalWhisper: process.env.TRANSCRIPTION_SERVICE === 'whisper-local' || (!process.env.DEEPGRAM_API_KEY && process.env.TRANSCRIPTION_SERVICE !== 'mock'),
-  useMockOpenAI: !process.env.OPENAI_API_KEY,
+  get useLocalWhisper(): boolean {
+    return process.env.TRANSCRIPTION_SERVICE === 'whisper-local' || (!getKey('deepgram') && process.env.TRANSCRIPTION_SERVICE !== 'mock');
+  },
+  get useMockOpenAI(): boolean {
+    return !getKey('openai');
+  },
 
   // Pyannote sidecar
   diarizationUrl: process.env.DIARIZATION_URL ?? '',
+  // True when the sidecar URL is set. The sidecar also serves local Parakeet.
+  sidecarConfigured: Boolean(process.env.DIARIZATION_URL),
   diarizationIntervalMs: parseInt(process.env.DIARIZATION_INTERVAL_MS ?? '10000', 10),
   // How many trailing seconds of session audio each periodic diarization
   // pass reprocesses, instead of the whole (growing) session. Bounds
@@ -29,8 +46,10 @@ export const config = {
     20,
     parseInt(process.env.DIARIZATION_WINDOW_SECONDS ?? '120', 10)
   ),
-  // Derived: disable diarization entirely if no URL is configured
-  useDiarization: Boolean(process.env.DIARIZATION_URL),
+  // Derived: diarization needs the sidecar URL and a Hugging Face token
+  get useDiarization(): boolean {
+    return Boolean(process.env.DIARIZATION_URL) && Boolean(getKey('huggingface'));
+  },
 
   // Audio format we capture from the browser (matches client/public/pcm-processor.js)
   sampleRate: 16000,
@@ -54,14 +73,14 @@ if (config.useMockDeepgram) {
   console.log('[Config] Running in LOCAL WHISPER mode for transcription');
 }
 if (config.useMockOpenAI) {
-  console.warn('[Config] OPENAI_API_KEY not set — running in MOCK mode for AI analysis');
+  console.warn('[Config] OpenAI key not set — running in MOCK mode for AI analysis');
 }
 if (!config.anthropicApiKey) {
-  console.warn('[Config] ANTHROPIC_API_KEY not set — Claude models unavailable');
+  console.warn('[Config] Anthropic key not set — Claude models unavailable');
 }
 if (!config.xaiApiKey) {
-  console.warn('[Config] XAI_API_KEY not set — Grok unavailable');
+  console.warn('[Config] xAI key not set — Grok unavailable');
 }
 if (!config.useDiarization) {
-  console.warn('[Config] DIARIZATION_URL not set — speaker diarization disabled');
+  console.warn('[Config] Diarization off — needs DIARIZATION_URL and a Hugging Face token');
 }

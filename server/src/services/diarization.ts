@@ -16,6 +16,28 @@
 // ---------------------------------------------------------------------------
 
 import { config } from '../config';
+import { getKey } from '../lib/runtimeKeys';
+
+// Sends the Hugging Face token to the sidecar. The sidecar only loads the
+// pyannote model on its next /diarize call, so this is cheap, and it is a
+// no-op when the token is unchanged. Returns an error message or null.
+export async function syncHuggingFaceToken(): Promise<string | null> {
+  const token = getKey('huggingface');
+  if (!config.sidecarConfigured || !token) return null;
+
+  const url = `${config.diarizationUrl.replace(/\/$/, '')}/token`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) return `sidecar HTTP ${res.status}`;
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
 
 export interface DiarSegment {
   start: number;            // seconds from start of audio

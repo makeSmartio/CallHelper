@@ -100,7 +100,7 @@ cp server/.env.example server/.env
 cp client/.env.example client/.env
 ```
 
-Those copies are gitignored. Put real keys only in `server/.env`. The
+Those copies are gitignored. The committed examples use empty keys. The
 committed examples use empty keys. Do not commit `.git_bad/`, session
 files, or audio under `server/data/`.
 
@@ -122,6 +122,22 @@ DIARIZATION_INTERVAL_MS=10000
 # Optional local ASR model, used when DEEPGRAM_API_KEY is absent
 PARAKEET_MODEL=mlx-community/parakeet-tdt-0.6b-v2
 ```
+
+### API keys
+
+Enter keys in the page. On first load, if a key is missing, a dialog asks for
+Deepgram, OpenAI, Anthropic, xAI, and Hugging Face keys. Click **Keys** in the
+header to change them. Keys are saved in this browser's `localStorage` and
+sent to the local server, which holds them in memory. Blank fields keep their
+current setting.
+
+`server/.env` still works as a fallback. A key set there is used when the
+browser has no value for it. Nothing is written back to `.env`.
+
+Speaker diarization needs both `DIARIZATION_URL` and a Hugging Face token. The
+pyannote model loads only after a token is present, so the app runs without
+it. The sidecar must be restarted once after pulling this change so it serves
+the `/token` endpoint.
 
 `client/.env`:
 
@@ -243,7 +259,9 @@ CallHelper/
   processes the whole recording, so very long calls cost more at hang-up.
   For true streaming, swap in [`diart`](https://github.com/juanmc2005/diart).
 - **No auth / encryption.** Local dev tool only. Don't expose the server
-  port to the internet without putting auth + TLS in front of it.
+  port to the internet without putting auth + TLS in front of it. Keys
+  entered in the page are stored in plain text in browser `localStorage`, and
+  `POST /keys` accepts keys without auth.
 - **Recording consent.** Many jurisdictions require all-party consent to
   record. Add a consent banner before deploying this anywhere shared.
 
@@ -254,14 +272,14 @@ CallHelper/
 - **Diarization disabled / Diar badge says "Offline":**
   - Is `DIARIZATION_URL` set in `server/.env`?
   - Is `server/diarization/.venv` present? Run `./start.sh --install`.
-  - Did you accept the model terms and set `HF_TOKEN`?
+  - Did you accept the model terms and add a Hugging Face key in **Keys** (or set `HF_TOKEN` in `server/.env`)?
   - Try `curl http://127.0.0.1:8765/health` to confirm the sidecar is up.
 - **Pyannote slow on the first run:** the model is being downloaded and
   loaded. Watch the diarization terminal for "Pipeline ready".
 - **`ASR` badge stuck on "Connecting":** check `DEEPGRAM_API_KEY` and your
   internet connection. Without `DEEPGRAM_API_KEY`, verify that the sidecar is
   running on Apple Silicon and that its Parakeet model can be downloaded.
-- **`AI` badge stays "Offline":** add `OPENAI_API_KEY` to `server/.env`.
+- **`AI` badge stays "Offline":** add an OpenAI key in **Keys**, or set `OPENAI_API_KEY` in `server/.env`.
   Without a key, the analysis falls back to mock responses.
 
 ---
