@@ -17,6 +17,7 @@ dependencies = [
     # Local transcription; Apple Silicon only.
     "mlx>=0.22.1",
     "parakeet-mlx>=0.5.2",
+    "python-dotenv>=1",
 ]
 
 [tool.uv]

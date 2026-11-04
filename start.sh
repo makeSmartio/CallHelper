@@ -37,6 +37,73 @@ diar_venv_is_healthy() {
   return 0
 }
 
+ENV_FILE="$ROOT/server/.env"
+ENV_TEMPLATE="$ROOT/server/.env.example"
+
+# Replace the `NAME=` line in a dotenv file. Values are validated by the
+# caller, so they need no quoting for either dotenv or `.` (bash source).
+set_env_value() {
+  local file="$1" name="$2" value="$3" tmp
+  tmp="$(mktemp "$file.XXXXXX")"
+  awk -v name="$name" -v value="$value" '
+    index($0, name "=") == 1 { print name "=" value; next }
+    { print }
+  ' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+# Create server/.env from the template on first install and, if a terminal
+# is attached, offer to fill in API keys. Never touches an existing .env.
+setup_server_env() {
+  if [[ -f "$ENV_FILE" ]]; then
+    echo "server/.env already exists; leaving it unchanged."
+    return 0
+  fi
+  local tmp
+  tmp="$(umask 077 && mktemp "$ENV_FILE.XXXXXX")"
+  cp "$ENV_TEMPLATE" "$tmp"
+  chmod 600 "$tmp"
+
+  if [[ -t 0 ]]; then
+    echo ""
+    echo "Creating server/.env. Every key is optional: without keys the app"
+    echo "uses mock analysis and local transcription, and diarization stays off."
+    echo "You can also enter keys later in the app's Keys dialog."
+    local answer
+    read -r -p "Add API keys to server/.env now? [y/N] " answer
+    if [[ "$answer" =~ ^[Yy] ]]; then
+      echo "Press Enter to skip a key. Input is hidden."
+      local entry name label value
+      for entry in \
+        "HF_TOKEN|Hugging Face token (diarization; accept https://hf.co/pyannote/speaker-diarization-3.1 first)" \
+        "DEEPGRAM_API_KEY|Deepgram API key (live transcription)" \
+        "OPENAI_API_KEY|OpenAI API key (analysis)" \
+        "ANTHROPIC_API_KEY|Anthropic API key (Claude models)" \
+        "XAI_API_KEY|xAI API key (Grok)"; do
+        name="${entry%%|*}"
+        label="${entry#*|}"
+        read -r -s -p "  $label: " value
+        echo ""
+        value="${value#"${value%%[![:space:]]*}"}"
+        value="${value%"${value##*[![:space:]]}"}"
+        if [[ -z "$value" ]]; then
+          continue
+        fi
+        if [[ ! "$value" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+          echo "    Skipped $name: unexpected characters. Edit server/.env by hand to set it." >&2
+          continue
+        fi
+        set_env_value "$tmp" "$name" "$value"
+        echo "    Saved $name."
+      done
+    fi
+  else
+    echo "No terminal attached; created server/.env from the template without keys."
+  fi
+  mv "$tmp" "$ENV_FILE"
+  echo "Wrote server/.env (readable only by you; gitignored)."
+}
+
 # Prints the offending process (if any) and the commands to inspect/kill it.
 # Returns 1 if the port is occupied, 0 if free or unknown (lsof missing).
 require_port_free() {
@@ -59,6 +126,10 @@ require_port_free() {
 }
 
 if [[ "${1:-}" == "--install" || "${1:-}" == "-i" ]]; then
+  setup_server_env
+  if [[ ! -f client/.env ]]; then
+    cp client/.env.example client/.env
+  fi
   (cd server && npm install)
   (cd client && npm install)
   if ! command -v uv >/dev/null 2>&1; then

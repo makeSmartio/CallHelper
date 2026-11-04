@@ -31,7 +31,7 @@ Node backend  ──WS /stream-transcribe (PCM)► Python (FastAPI + Parakeet ML
    `uv remove`) and commit the updated `uv.lock`. `uv lock --upgrade`
    moves everything to the newest compatible versions.
 
-4. Put the token in `server/.env`:
+4. Put the token in `server/.env` (`./start.sh --install` offers to do this):
 
    ```
    HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxx
@@ -41,7 +41,7 @@ Node backend  ──WS /stream-transcribe (PCM)► Python (FastAPI + Parakeet ML
 
 ```bash
 cd server/diarization
-HF_TOKEN=$(grep ^HF_TOKEN ../.env | cut -d= -f2) uv run service.py
+uv run service.py   # loads ../.env (server/.env) via python-dotenv
 ```
 
 `start.sh` at the repo root does this for you when `server/diarization/.venv`

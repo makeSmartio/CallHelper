@@ -53,9 +53,16 @@ transcript just shows "Speaker ?".
 ./start.sh --install
 ```
 
-This installs `server/` and `client/`, then runs `uv sync --locked` in
-`server/diarization/` to create its `.venv` (Python 3.14, `pyannote.audio`)
-from `uv.lock`.
+This does the following:
+
+1. If `server/.env` doesn’t exist yet, it creates it from
+   `server/.env.example` (mode 600) and asks whether you want to enter API
+   keys. Each key is optional, input is hidden, and Enter skips a key. An
+   existing `server/.env` is never changed. It also copies
+   `client/.env.example` to `client/.env` if that file is missing.
+2. Installs `server/` and `client/` with npm.
+3. Runs `uv sync --locked` in `server/diarization/` to create its `.venv`
+   (Python 3.14, `pyannote.audio`) from `uv.lock`.
 
 ### Hugging Face setup (one-time, for diarization)
 
@@ -68,14 +75,20 @@ from `uv.lock`.
 
 ## Configure
 
+`./start.sh --install` creates `server/.env` and `client/.env` for you. To
+create them by hand instead:
+
 ```bash
 cp server/.env.example server/.env
 cp client/.env.example client/.env
 ```
 
-Those copies are gitignored. The committed examples use empty keys. The
-committed examples use empty keys. Do not commit `.git_bad/`, session
-files, or audio under `server/data/`.
+Those copies are gitignored. The committed examples use empty keys. Do not
+commit `.git_bad/`, session files, or audio under `server/data/`.
+
+`server/.env` is loaded by the Node server (dotenv), by the Python sidecar
+(python-dotenv, so `uv run service.py` works on its own), and by `start.sh`.
+Variables already set in the environment win over `.env`.
 
 `server/.env`:
 

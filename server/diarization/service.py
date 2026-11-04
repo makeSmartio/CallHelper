@@ -18,7 +18,14 @@ import logging
 import traceback
 import asyncio
 import tempfile
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+# Load server/.env so `uv run service.py` works without start.sh. Variables
+# already in the environment (e.g. exported by start.sh) take precedence.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # ---------------------------------------------------------------------------
 # linecache shim — MUST run before pyannote/speechbrain are imported.
