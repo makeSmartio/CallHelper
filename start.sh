@@ -54,6 +54,27 @@ diar_venv_is_healthy() {
   return 0
 }
 
+# Prints the offending process (if any) and the commands to inspect/kill it.
+# Returns 1 if the port is occupied, 0 if free or unknown (lsof missing).
+require_port_free() {
+  local port="$1" label="$2"
+  if ! command -v lsof >/dev/null 2>&1; then
+    return 0
+  fi
+  local info
+  info="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  if [[ -n "$info" ]]; then
+    echo "" >&2
+    echo "Port $port ($label) is already in use:" >&2
+    echo "$info" >&2
+    echo "" >&2
+    echo "  Find it again:  lsof -nP -iTCP:$port -sTCP:LISTEN" >&2
+    echo "  Kill it:        kill <PID>        (or: kill -9 <PID>)" >&2
+    return 1
+  fi
+  return 0
+}
+
 if [[ "${1:-}" == "--install" || "${1:-}" == "-i" ]]; then
   (cd server && npm install)
   (cd client && npm install)
@@ -113,6 +134,23 @@ if [[ -f server/.env ]]; then
   set +a
 fi
 
+DIAR_SHOULD_START=0
+if [[ -d "$DIAR_VENV" ]] && diar_venv_is_healthy; then
+  DIAR_SHOULD_START=1
+fi
+
+PORTS_OK=1
+require_port_free "${PORT:-3001}" "backend (PORT)" || PORTS_OK=0
+require_port_free "${CLIENT_PORT:-5173}" "client/vite (CLIENT_PORT)" || PORTS_OK=0
+if [[ "$DIAR_SHOULD_START" -eq 1 ]]; then
+  require_port_free "${DIARIZATION_PORT:-8765}" "diarization sidecar (DIARIZATION_PORT)" || PORTS_OK=0
+fi
+if [[ "$PORTS_OK" -eq 0 ]]; then
+  echo "" >&2
+  echo "Refusing to start: free the port(s) above, or override PORT/CLIENT_PORT/DIARIZATION_PORT in server/.env, then re-run $0." >&2
+  exit 1
+fi
+
 SERVER_PID=""
 CLIENT_PID=""
 DIAR_PID=""
@@ -130,21 +168,21 @@ trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
 # 1. Python diarization sidecar (optional)
-if [[ ! -d "$DIAR_VENV" ]]; then
-  echo "Pyannote sidecar venv not found at server/diarization/.venv"
-  echo "  Diarization will be disabled. Run: $0 --install  to set it up."
-elif ! diar_venv_is_healthy; then
-  echo "Pyannote sidecar venv at server/diarization/.venv failed to import:"
-  echo "  ${DIAR_IMPORT_ERROR:-unknown import error}"
-  echo "  Diarization will be disabled. If this is a SciPy/macOS wheel issue, use Python 3.12:"
-  echo "  rm -rf server/diarization/.venv && $0 --install"
-else
+if [[ "$DIAR_SHOULD_START" -eq 1 ]]; then
   (
     cd server/diarization
     exec "$DIAR_PYTHON" service.py
   ) &
   DIAR_PID=$!
   echo "Pyannote diarization sidecar starting (PID $DIAR_PID, http://0.0.0.0:${DIARIZATION_PORT:-8765})"
+elif [[ ! -d "$DIAR_VENV" ]]; then
+  echo "Pyannote sidecar venv not found at server/diarization/.venv"
+  echo "  Diarization will be disabled. Run: $0 --install  to set it up."
+else
+  echo "Pyannote sidecar venv at server/diarization/.venv failed to import:"
+  echo "  ${DIAR_IMPORT_ERROR:-unknown import error}"
+  echo "  Diarization will be disabled. If this is a SciPy/macOS wheel issue, use Python 3.12:"
+  echo "  rm -rf server/diarization/.venv && $0 --install"
 fi
 
 # 2. Node backend
