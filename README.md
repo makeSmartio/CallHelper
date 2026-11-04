@@ -30,8 +30,9 @@ prompt against the rolling transcript every few seconds.
 
 ## Prerequisites
 
-- Node.js ≥ 18 and npm ≥ 9
-- Python ≥ 3.10 (for diarization or local transcription)
+- Node.js ≥ 22 and npm ≥ 9
+- [uv](https://docs.astral.sh/uv/) (for diarization or local transcription;
+  it installs Python 3.14 for the sidecar if you don’t have it)
 - Apple Silicon (only if you want the local Parakeet MLX transcription
   fallback)
 - Optional API keys:
@@ -52,8 +53,9 @@ transcript just shows "Speaker ?".
 ./start.sh --install
 ```
 
-This installs `server/`, `client/`, and (if Python is available) creates
-`server/diarization/.venv` with `pyannote.audio`.
+This installs `server/` and `client/`, then runs `uv sync --locked` in
+`server/diarization/` to create its `.venv` (Python 3.14, `pyannote.audio`)
+from `uv.lock`.
 
 ### Hugging Face setup (one-time, for diarization)
 
@@ -180,7 +182,7 @@ Browser (React + Vite)            Node backend (Express + ws)            Python 
 | --- | --- | --- |
 | Frontend | 5173 | React + Vite + Tailwind |
 | Backend  | 3001 | Node 18+, Express, `ws`, OpenAI SDK, Deepgram SDK |
-| Diarization | 8765 | Python 3.11–3.13, FastAPI, `pyannote.audio`, PyTorch |
+| Diarization | 8765 | Python 3.14 (uv), FastAPI, `pyannote.audio`, PyTorch |
 
 Periodic diarization covers the last `DIARIZATION_WINDOW_SECONDS` of audio
 (default 120 s) every `DIARIZATION_INTERVAL_MS` (default 10 s). Speaker
@@ -228,7 +230,7 @@ CallHelper/
     │
     ├── diarization/            # Python pyannote sidecar (FastAPI)
     │   ├── service.py
-    │   ├── requirements.txt
+    │   ├── pyproject.toml      # deps; uv.lock pins them, .python-version = 3.14
     │   └── README.md
     │
     └── data/                   # gitignored — sessions + LLM call log

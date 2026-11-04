@@ -136,7 +136,7 @@ class DiarizationService:
                 )
             log.info("Loading pyannote pipeline %s ...", MODEL_NAME)
             t0 = time.time()
-            pipeline = Pipeline.from_pretrained(MODEL_NAME, use_auth_token=HF_TOKEN)
+            pipeline = Pipeline.from_pretrained(MODEL_NAME, token=HF_TOKEN)
             if pipeline is None:
                 raise RuntimeError(
                     f"Failed to load {MODEL_NAME}. Check that HF_TOKEN is valid "
@@ -186,6 +186,8 @@ class DiarizationService:
             )
         took_ms = int((time.time() - t0) * 1000)
         del waveform
+        # pyannote.audio 4 returns a DiarizeOutput wrapping the Annotation.
+        diarization = getattr(diarization, "speaker_diarization", diarization)
 
         segments = []
         speakers = set()

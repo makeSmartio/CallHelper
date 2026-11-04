@@ -8,44 +8,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 cd "$ROOT"
 
-DIAR_VENV="$ROOT/server/diarization/.venv"
-DIAR_PYTHON="$DIAR_VENV/bin/python"
+DIAR_DIR="$ROOT/server/diarization"
+DIAR_PYTHON="$DIAR_DIR/.venv/bin/python"
 DIAR_IMPORT_ERROR=""
 
-# Supported range for the sidecar: Python 3.11 through 3.13.
-# - Below 3.11: SciPy 1.15.x (the last release that supports 3.10) ships a
-#   _spropack wheel that dyld on macOS 26+ rejects. SciPy 1.16+ needs 3.11+.
-# - 3.14+: torch==2.8.0 (pinned for pyannote.audio 3.3.2) has no 3.14 wheels.
-DIAR_PY_MIN_MINOR=11
-DIAR_PY_MAX_MINOR=13
+# uv owns the sidecar's Python (3.14, from server/diarization/.python-version)
+# and its venv. An unrelated activated venv would make uv warn and is never
+# what we want here.
+unset VIRTUAL_ENV
 
-# Prefer an explicitly versioned interpreter over `python3`, which may be a
-# pyenv 3.10 or a Homebrew 3.14.
-resolve_diar_python() {
-  local cand minor
-  for cand in python3.12 python3.13 python3.11 python3; do
-    if command -v "$cand" >/dev/null 2>&1; then
-      minor="$(diar_python_minor "$cand")"
-      if [[ "$minor" -ge "$DIAR_PY_MIN_MINOR" && "$minor" -le "$DIAR_PY_MAX_MINOR" ]]; then
-        printf '%s\n' "$cand"
-        return 0
-      fi
-    fi
-  done
-  return 1
-}
-
-diar_python_minor() {
-  local bin="$1"
-  "$bin" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo 0
-}
-
-# A venv is not relocatable: its activate script and shebangs hardcode the
-# absolute path it was created at. If this repo was ever moved/renamed, a
-# pre-existing .venv here will silently point at a path that no longer
-# exists. Detect that by invoking the venv's python binary directly (not
-# via `source activate`, which can mask the failure behind a pyenv shim).
-# Also fail if pyannote.audio cannot import (e.g. SciPy wheel vs OS).
+# Fail if the venv's python is missing or cannot import the sidecar's deps.
+# Invoke it directly rather than through `source activate`, which can hide a
+# broken venv behind a pyenv shim.
 diar_venv_is_healthy() {
   DIAR_IMPORT_ERROR=""
   if [[ ! -x "$DIAR_PYTHON" ]]; then
@@ -87,42 +61,21 @@ require_port_free() {
 if [[ "${1:-}" == "--install" || "${1:-}" == "-i" ]]; then
   (cd server && npm install)
   (cd client && npm install)
-  DIAR_PY="$(resolve_diar_python || true)"
-  if [[ -z "$DIAR_PY" ]]; then
-    found="$(python3 --version 2>&1 || echo 'no python3 on PATH')"
-    echo "The pyannote sidecar needs Python 3.$DIAR_PY_MIN_MINOR-3.$DIAR_PY_MAX_MINOR (found: $found)." >&2
-    echo "Install one, e.g. 'brew install python@3.12', then re-run $0 --install." >&2
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "uv is required for the pyannote sidecar. Install it with 'brew install uv'" >&2
+    echo "(or see https://docs.astral.sh/uv/), then re-run $0 --install." >&2
     exit 1
   fi
-  recreate=0
-  if [[ -d "$DIAR_VENV" ]] && ! diar_venv_is_healthy; then
-    echo ""
-    echo "Existing Python venv at server/diarization/.venv cannot import pyannote:"
-    echo "  ${DIAR_IMPORT_ERROR:-unknown import error}"
-    echo "Recreating with $DIAR_PY..."
-    recreate=1
-  elif [[ -x "$DIAR_PYTHON" ]]; then
-    venv_minor="$(diar_python_minor "$DIAR_PYTHON")"
-    if [[ "$venv_minor" -lt "$DIAR_PY_MIN_MINOR" || "$venv_minor" -gt "$DIAR_PY_MAX_MINOR" ]]; then
-      echo ""
-      echo "Existing Python venv is 3.$venv_minor (supported: 3.$DIAR_PY_MIN_MINOR-3.$DIAR_PY_MAX_MINOR). Recreating with $DIAR_PY..."
-      recreate=1
-    fi
-  fi
-  if [[ "$recreate" -eq 1 ]]; then
-    rm -rf "$DIAR_VENV"
-  fi
-  if [[ ! -d "$DIAR_VENV" ]]; then
-    echo ""
-    echo "Setting up Python venv for the pyannote sidecar with $DIAR_PY..."
-    "$DIAR_PY" -m venv "$DIAR_VENV"
-    "$DIAR_PYTHON" -m pip install --upgrade pip
-    "$DIAR_PYTHON" -m pip install -r server/diarization/requirements.txt
-    if ! diar_venv_is_healthy; then
-      echo "Diarization venv installed but import still fails:" >&2
-      echo "  ${DIAR_IMPORT_ERROR:-unknown import error}" >&2
-      exit 1
-    fi
+  echo ""
+  echo "Syncing the pyannote sidecar's Python environment with uv..."
+  # --locked: install exactly what uv.lock pins, and fail if pyproject.toml
+  # changed without re-running `uv lock`. uv fetches Python 3.14 if needed and
+  # rebuilds .venv if it was made with another interpreter.
+  uv sync --locked --project "$DIAR_DIR"
+  if ! diar_venv_is_healthy; then
+    echo "Diarization venv installed but import still fails:" >&2
+    echo "  ${DIAR_IMPORT_ERROR:-unknown import error}" >&2
+    exit 1
   fi
 fi
 
@@ -144,7 +97,7 @@ if [[ -f server/.env ]]; then
 fi
 
 DIAR_SHOULD_START=0
-if [[ -d "$DIAR_VENV" ]] && diar_venv_is_healthy; then
+if [[ -d "$DIAR_DIR/.venv" ]] && diar_venv_is_healthy; then
   DIAR_SHOULD_START=1
 fi
 
@@ -184,14 +137,13 @@ if [[ "$DIAR_SHOULD_START" -eq 1 ]]; then
   ) &
   DIAR_PID=$!
   echo "Pyannote diarization sidecar starting (PID $DIAR_PID, http://0.0.0.0:${DIARIZATION_PORT:-8765})"
-elif [[ ! -d "$DIAR_VENV" ]]; then
+elif [[ ! -d "$DIAR_DIR/.venv" ]]; then
   echo "Pyannote sidecar venv not found at server/diarization/.venv"
   echo "  Diarization will be disabled. Run: $0 --install  to set it up."
 else
   echo "Pyannote sidecar venv at server/diarization/.venv failed to import:"
   echo "  ${DIAR_IMPORT_ERROR:-unknown import error}"
-  echo "  Diarization will be disabled. If this is a SciPy/macOS wheel issue, use Python 3.12:"
-  echo "  rm -rf server/diarization/.venv && $0 --install"
+  echo "  Diarization will be disabled. Run: $0 --install  to resync it with uv."
 fi
 
 # 2. Node backend
