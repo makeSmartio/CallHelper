@@ -28,35 +28,6 @@ prompt against the rolling transcript every few seconds.
 
 ---
 
-## Architecture
-
-```
-Browser (React + Vite)            Node backend (Express + ws)            Python sidecar (FastAPI)
-  │                                  │                                       │
-  │  PCM16 @ 16 kHz over WS (binary) │                                       │
-  ├─────────────────────────────────►│                                       │
-  │                                  │  → Deepgram Listen v1 (cloud ASR)     │
-  │                                  │  → Parakeet MLX (local ASR fallback)  │
-  │                                  │  → pyannote.audio every ~10s ────────►│
-  │                                  │                                       │  loads
-  │                                  │  ← speaker segments  ←────────────────│  pyannote/
-  │  transcript + speaker labels     │  → OpenAI on rolling transcript       │  speaker-
-  │◄─────────────────────────────────│                                       │  diarization-3.1
-```
-
-| Tier | Port | Tech |
-| --- | --- | --- |
-| Frontend | 5173 | React + Vite + Tailwind |
-| Backend  | 3001 | Node 18+, Express, `ws`, OpenAI SDK, Deepgram SDK |
-| Diarization | 8765 | Python 3.10+, FastAPI, `pyannote.audio`, PyTorch |
-
-Periodic diarization covers the last `DIARIZATION_WINDOW_SECONDS` of audio
-(default 120 s) every `DIARIZATION_INTERVAL_MS` (default 10 s). Speaker
-identity is carried across windows with embeddings. The end-of-session pass
-still uses the full recording.
-
----
-
 ## Prerequisites
 
 - Node.js ≥ 18 and npm ≥ 9
@@ -186,6 +157,35 @@ pipeline.
   log) to a JSON file you can re-load with **↑ Import**.
 - **↓ WAV** downloads the raw audio you streamed during this session,
   handy for offline pyannote experiments.
+
+---
+
+## Architecture
+
+```
+Browser (React + Vite)            Node backend (Express + ws)            Python sidecar (FastAPI)
+  │                                  │                                       │
+  │  PCM16 @ 16 kHz over WS (binary) │                                       │
+  ├─────────────────────────────────►│                                       │
+  │                                  │  → Deepgram Listen v1 (cloud ASR)     │
+  │                                  │  → Parakeet MLX (local ASR fallback)  │
+  │                                  │  → pyannote.audio every ~10s ────────►│
+  │                                  │                                       │  loads
+  │                                  │  ← speaker segments  ←────────────────│  pyannote/
+  │  transcript + speaker labels     │  → OpenAI on rolling transcript       │  speaker-
+  │◄─────────────────────────────────│                                       │  diarization-3.1
+```
+
+| Tier | Port | Tech |
+| --- | --- | --- |
+| Frontend | 5173 | React + Vite + Tailwind |
+| Backend  | 3001 | Node 18+, Express, `ws`, OpenAI SDK, Deepgram SDK |
+| Diarization | 8765 | Python 3.10+, FastAPI, `pyannote.audio`, PyTorch |
+
+Periodic diarization covers the last `DIARIZATION_WINDOW_SECONDS` of audio
+(default 120 s) every `DIARIZATION_INTERVAL_MS` (default 10 s). Speaker
+identity is carried across windows with embeddings. The end-of-session pass
+still uses the full recording.
 
 ---
 
